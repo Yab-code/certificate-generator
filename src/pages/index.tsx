@@ -1,78 +1,270 @@
-import Image from "next/image";
-import { Geist, Geist_Mono } from "next/font/google";
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import Head from 'next/head';
+import { CertificateTemplate, DesignSettings, Recipient, BatchProgress, DEFAULT_DESIGN_SETTINGS } from '@/types/certificate';
+import { BUILTIN_TEMPLATES } from '@/utils/templates';
+import { downloadSingleCertificate, exportBatchToZip } from '@/utils/exportEngine';
+import { Header } from '@/components/Header';
+import { CertificateSettings } from '@/components/CertificateSettings';
+import { LivePreview } from '@/components/LivePreview';
+import { ProgressDialog } from '@/components/ProgressDialog';
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const DEFAULT_DEMO_NAMES = [
+  'Alex Morgan',
+  'Dr. Sarah Jenkins',
+  'Marcus Vance',
+  'Elena Rostova',
+  'Jonathan Sterling',
+];
 
 export default function Home() {
+  // Recipient state
+  const [manualText, setManualText] = useState<string>(DEFAULT_DEMO_NAMES.join('\n'));
+  const [csvFilename, setCsvFilename] = useState<string | undefined>(undefined);
+  const [recipients, setRecipients] = useState<Recipient[]>([]);
+
+  // Template state
+  const [selectedTemplate, setSelectedTemplate] = useState<CertificateTemplate>(BUILTIN_TEMPLATES[0]);
+  const [customTemplateDataUrl, setCustomTemplateDataUrl] = useState<string | null>(null);
+  const [customImageElement, setCustomImageElement] = useState<HTMLImageElement | null>(null);
+
+  // Design state
+  const [designSettings, setDesignSettings] = useState<DesignSettings>(DEFAULT_DESIGN_SETTINGS);
+
+  // Navigation state
+  const [currentIndex, setCurrentIndex] = useState<number>(0);
+
+  // Batch Progress state
+  const [progress, setProgress] = useState<BatchProgress>({
+    isGenerating: false,
+    current: 0,
+    total: 0,
+    currentName: '',
+    status: 'idle',
+  });
+
+  const isCancelledRef = useRef<boolean>(false);
+  const activeCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Recipient list sync logic:
+  // If CSV filename exists, use CSV recipients. Otherwise derive from manual text lines.
+  useEffect(() => {
+    if (!csvFilename) {
+      const lines = manualText
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+
+      const parsed: Recipient[] = lines.map((name, i) => ({
+        id: `manual-${i}`,
+        name,
+      }));
+
+      setRecipients(parsed.length > 0 ? parsed : [{ id: 'demo-1', name: 'Recipient Name' }]);
+    }
+  }, [manualText, csvFilename]);
+
+  // Adjust active recipient index if out of bounds
+  useEffect(() => {
+    if (currentIndex >= recipients.length && recipients.length > 0) {
+      setCurrentIndex(recipients.length - 1);
+    }
+  }, [recipients, currentIndex]);
+
+  // Handlers for Recipient Input
+  const handleNamesLoadedFromCsv = (csvRecipients: Recipient[], filename: string) => {
+    setCsvFilename(filename);
+    setRecipients(csvRecipients);
+    setCurrentIndex(0);
+  };
+
+  const handleClearCsv = () => {
+    setCsvFilename(undefined);
+  };
+
+  const handleManualTextChange = (text: string) => {
+    setManualText(text);
+    if (csvFilename) {
+      setCsvFilename(undefined);
+    }
+  };
+
+  // Handlers for Template Selection & Custom Upload
+  const handleSelectTemplate = (template: CertificateTemplate) => {
+    setSelectedTemplate(template);
+  };
+
+  const handleCustomTemplateUpload = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      if (dataUrl) {
+        setCustomTemplateDataUrl(dataUrl);
+
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          setCustomImageElement(img);
+
+          const customTemplate: CertificateTemplate = {
+            id: `custom-${Date.now()}`,
+            name: 'Custom Uploaded Image',
+            category: 'Custom',
+            primaryColor: '#6366f1',
+            accentColor: '#818cf8',
+            customImageUrl: dataUrl,
+          };
+
+          setSelectedTemplate(customTemplate);
+        };
+        img.src = dataUrl;
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Handlers for Design Controls
+  const handleDesignSettingsChange = (partial: Partial<DesignSettings>) => {
+    setDesignSettings((prev) => ({ ...prev, ...partial }));
+  };
+
+  const handleResetDesign = () => {
+    setDesignSettings(DEFAULT_DESIGN_SETTINGS);
+  };
+
+  // Handlers for Single Export
+  const handleDownloadSingle = (format: 'png' | 'jpg' | 'pdf') => {
+    const canvas = activeCanvasRef.current;
+    if (!canvas) return;
+
+    const currentName = recipients[currentIndex]?.name || 'Recipient Name';
+    downloadSingleCertificate(canvas, currentName, format);
+  };
+
+  // Handlers for Batch ZIP Export
+  const handleDownloadBatchZip = async () => {
+    if (recipients.length === 0) return;
+
+    isCancelledRef.current = false;
+
+    setProgress({
+      isGenerating: true,
+      current: 0,
+      total: recipients.length,
+      currentName: recipients[0]?.name || '',
+      status: 'processing',
+    });
+
+    try {
+      await exportBatchToZip(
+        recipients,
+        selectedTemplate,
+        designSettings,
+        (current, total, name) => {
+          setProgress((prev) => ({
+            ...prev,
+            current,
+            total,
+            currentName: name,
+          }));
+        },
+        isCancelledRef,
+        customImageElement
+      );
+
+      setProgress((prev) => ({
+        ...prev,
+        isGenerating: false,
+        status: 'completed',
+      }));
+    } catch (err: any) {
+      if (isCancelledRef.current) {
+        setProgress((prev) => ({
+          ...prev,
+          isGenerating: false,
+          status: 'cancelled',
+        }));
+      } else {
+        setProgress((prev) => ({
+          ...prev,
+          isGenerating: false,
+          status: 'error',
+          errorMessage: err.message || 'Export failed',
+        }));
+      }
+    }
+  };
+
+  const handleCancelBatch = () => {
+    isCancelledRef.current = true;
+  };
+
+  const handleCloseProgressDialog = () => {
+    setProgress((prev) => ({ ...prev, status: 'idle' }));
+  };
+
+  const handleCanvasReady = useCallback((canvas: HTMLCanvasElement) => {
+    activeCanvasRef.current = canvas;
+  }, []);
+
   return (
-    <div
-      className={`${geistSans.className} ${geistMono.className} flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black`}
-    >
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the index.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white flex flex-col">
+      <Head>
+        <title>CertifyPro - Professional Certificate Studio</title>
+        <meta name="description" content="Generate high-resolution custom bulk certificates instantly in your browser." />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="icon" href="/favicon.ico" />
+      </Head>
+
+      {/* Main Studio Header */}
+      <Header />
+
+      {/* Main Content Split Layout Area */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* LEFT PANEL (Settings) - 5 Columns */}
+          <div className="lg:col-span-5 h-full">
+            <CertificateSettings
+              recipients={recipients}
+              csvFilename={csvFilename}
+              onNamesLoadedFromCsv={handleNamesLoadedFromCsv}
+              onClearCsv={handleClearCsv}
+              manualText={manualText}
+              onManualTextChange={handleManualTextChange}
+              selectedTemplate={selectedTemplate}
+              onSelectTemplate={handleSelectTemplate}
+              customTemplateImage={customTemplateDataUrl}
+              onCustomTemplateUpload={handleCustomTemplateUpload}
+              designSettings={designSettings}
+              onDesignSettingsChange={handleDesignSettingsChange}
+              onResetDesign={handleResetDesign}
+              onGenerate={handleDownloadBatchZip}
+              isGenerating={progress.isGenerating}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs/pages/getting-started?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+          </div>
+
+          {/* RIGHT PANEL (Preview & Export) - 7 Columns */}
+          <div className="lg:col-span-7 h-full">
+            <LivePreview
+              recipients={recipients}
+              currentIndex={currentIndex}
+              onIndexChange={setCurrentIndex}
+              selectedTemplate={selectedTemplate}
+              designSettings={designSettings}
+              customTemplateImage={customImageElement}
+              onDownloadSingle={handleDownloadSingle}
+              onDownloadBatchZip={handleDownloadBatchZip}
+              onCanvasReady={handleCanvasReady}
+            />
+          </div>
         </div>
       </main>
+
+      {/* Global Progress Modal */}
+      <ProgressDialog
+        progress={progress}
+        onCancel={handleCancelBatch}
+        onClose={handleCloseProgressDialog}
+      />
     </div>
   );
 }
