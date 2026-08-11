@@ -36,6 +36,24 @@ export const CertificateCanvas: React.FC<CertificateCanvasProps> = ({
     };
   }, [settings.fontFamily]);
 
+  const [aspectRatio, setAspectRatio] = useState<string>('16/9');
+
+  useEffect(() => {
+    if (template.id.startsWith('custom-') && customImage) {
+      const w = customImage.naturalWidth || customImage.width;
+      const h = customImage.naturalHeight || customImage.height;
+      if (w && h) {
+        setAspectRatio(`${w}/${h}`);
+        return;
+      }
+    }
+    if (template.width && template.height) {
+      setAspectRatio(`${template.width}/${template.height}`);
+      return;
+    }
+    setAspectRatio('16/9');
+  }, [template, customImage]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -60,7 +78,7 @@ export const CertificateCanvas: React.FC<CertificateCanvasProps> = ({
       <canvas
         ref={canvasRef}
         className="w-full h-auto max-h-[580px] object-contain rounded-lg shadow-2xl transition-all"
-        style={{ aspectRatio: '16/9' }}
+        style={{ aspectRatio }}
       />
     </div>
   );

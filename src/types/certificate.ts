@@ -26,6 +26,8 @@ export interface CertificateTemplate {
   category: 'Classic' | 'Modern' | 'Academic' | 'Corporate' | 'Luxury' | 'Custom';
   thumbnailUrl?: string;
   customImageUrl?: string;
+  width?: number;
+  height?: number;
   primaryColor: string;
   accentColor: string;
   defaultTitle?: string;

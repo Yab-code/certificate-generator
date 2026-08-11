@@ -117,7 +117,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
               <p className="text-xs font-semibold">
                 {customTemplateImage ? 'Custom Image Loaded' : 'Upload Custom Template Image'}
               </p>
-              <p className="text-[11px] text-slate-400">PNG, JPG or JPEG (Recommended 1920x1080)</p>
+              <p className="text-[11px] text-slate-400">PNG, JPG or JPEG (Any size & aspect ratio supported)</p>
             </div>
           </div>
           <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">

@@ -13,22 +13,34 @@ export async function renderCertificateToCanvas(
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
 
-  // Set standard canvas dimensions for high DPI
-  canvas.width = CANVAS_WIDTH;
-  canvas.height = CANVAS_HEIGHT;
+  // Determine target canvas dimensions: custom image dimensions or standard 1920x1080
+  let width = CANVAS_WIDTH;
+  let height = CANVAS_HEIGHT;
+
+  if (template.id.startsWith('custom-') && loadedCustomImage) {
+    width = loadedCustomImage.naturalWidth || loadedCustomImage.width || CANVAS_WIDTH;
+    height = loadedCustomImage.naturalHeight || loadedCustomImage.height || CANVAS_HEIGHT;
+  } else if (template.width && template.height) {
+    width = template.width;
+    height = template.height;
+  }
+
+  // Set canvas dimensions to exact custom image dimensions
+  canvas.width = width;
+  canvas.height = height;
 
   // 1. Clear Canvas
-  ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  ctx.clearRect(0, 0, width, height);
 
   // 2. Render Template Background
   if (template.id.startsWith('custom-') && loadedCustomImage) {
-    ctx.drawImage(loadedCustomImage, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.drawImage(loadedCustomImage, 0, 0, width, height);
   } else if (template.renderBackground) {
-    template.renderBackground(ctx, CANVAS_WIDTH, CANVAS_HEIGHT);
+    template.renderBackground(ctx, width, height);
   } else {
     // Fallback solid fill
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, width, height);
   }
 
   // 3. Render Recipient Name
@@ -37,10 +49,10 @@ export async function renderCertificateToCanvas(
   }
 
   // Calculate text coordinates based on percentage sliders
-  const x = (settings.horizontalPosition / 100) * CANVAS_WIDTH;
-  const y = (settings.verticalPosition / 100) * CANVAS_HEIGHT;
+  const x = (settings.horizontalPosition / 100) * width;
+  const y = (settings.verticalPosition / 100) * height;
 
-  const maxAllowedWidth = (settings.maxTextWidth / 100) * CANVAS_WIDTH;
+  const maxAllowedWidth = (settings.maxTextWidth / 100) * width;
 
   ctx.save();
 
@@ -55,9 +67,9 @@ export async function renderCertificateToCanvas(
 
   ctx.textBaseline = 'middle';
 
-  // Base font size scaling (settings.fontSize is in UI scale 10–100, canvas operates at 1920x1080)
-  // Scale factor e.g. fontSize 48 -> ~72px on 1920x1080 canvas
-  let currentFontSize = Math.round(settings.fontSize * 1.6);
+  // Base font size scaling relative to standard 1920 width
+  const dimensionScale = width / CANVAS_WIDTH;
+  let currentFontSize = Math.round(settings.fontSize * 1.6 * dimensionScale);
   ctx.font = `${settings.fontWeight} ${currentFontSize}px "${settings.fontFamily}", sans-serif`;
 
   // Auto-fit long names calculation
@@ -73,9 +85,9 @@ export async function renderCertificateToCanvas(
   // Configure Shadow
   if (settings.hasShadow) {
     ctx.shadowColor = settings.shadowColor || 'rgba(0, 0, 0, 0.4)';
-    ctx.shadowBlur = settings.shadowBlur || 8;
-    ctx.shadowOffsetX = 3;
-    ctx.shadowOffsetY = 3;
+    ctx.shadowBlur = Math.round((settings.shadowBlur || 8) * dimensionScale);
+    ctx.shadowOffsetX = Math.round(3 * dimensionScale);
+    ctx.shadowOffsetY = Math.round(3 * dimensionScale);
   } else {
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
@@ -86,10 +98,10 @@ export async function renderCertificateToCanvas(
   // Text Color
   ctx.fillStyle = settings.fontColor;
 
-  // Render text with letter spacing support if supported or manual spacing
+  // Render text with letter spacing support if supported
   if ('letterSpacing' in ctx) {
     // @ts-ignore
-    ctx.letterSpacing = `${settings.letterSpacing}px`;
+    ctx.letterSpacing = `${settings.letterSpacing * dimensionScale}px`;
   }
 
   // Multi-line support if recipient name contains line breaks

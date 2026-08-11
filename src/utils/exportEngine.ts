@@ -25,18 +25,18 @@ export function downloadSingleCertificate(
     saveAs(dataUrl, `${sanitizedName}_certificate.jpg`);
   } else if (format === 'pdf') {
     const imgData = canvas.toDataURL('image/jpeg', 0.95);
-    
-    // Landscape A4 orientation in millimeters: 297mm x 210mm
+    const isPortrait = canvas.height > canvas.width;
+    const orientation = isPortrait ? 'portrait' : 'landscape';
+
+    // Create PDF matching exact pixel dimensions & aspect ratio of the certificate
     const pdf = new jsPDF({
-      orientation: 'landscape',
-      unit: 'mm',
-      format: 'a4',
+      orientation,
+      unit: 'px',
+      format: [canvas.width, canvas.height],
+      hotfixes: ['pxScaling'],
     });
 
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = pdf.internal.pageSize.getHeight();
-
-    pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+    pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height);
     pdf.save(`${sanitizedName}_certificate.pdf`);
   }
 }
@@ -72,8 +72,6 @@ export async function exportBatchToZip(
 
   // Create an offscreen canvas dedicated to batch rendering
   const batchCanvas = document.createElement('canvas');
-  batchCanvas.width = CANVAS_WIDTH;
-  batchCanvas.height = CANVAS_HEIGHT;
 
   const total = recipients.length;
 
@@ -85,7 +83,7 @@ export async function exportBatchToZip(
     const recipient = recipients[i];
     onProgress(i + 1, total, recipient.name);
 
-    // Render certificate to offscreen canvas
+    // Render certificate to offscreen canvas (width and height will be auto-set by template/custom image dimensions)
     await renderCertificateToCanvas(batchCanvas, recipient.name, template, settings, customImage);
 
     // Convert canvas to blob/base64

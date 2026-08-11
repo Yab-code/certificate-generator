@@ -105,13 +105,18 @@ export default function Home() {
         img.onload = () => {
           setCustomImageElement(img);
 
+          const width = img.naturalWidth || img.width;
+          const height = img.naturalHeight || img.height;
+
           const customTemplate: CertificateTemplate = {
             id: `custom-${Date.now()}`,
-            name: 'Custom Uploaded Image',
+            name: `Custom (${width} × ${height})`,
             category: 'Custom',
             primaryColor: '#6366f1',
             accentColor: '#818cf8',
             customImageUrl: dataUrl,
+            width,
+            height,
           };
 
           setSelectedTemplate(customTemplate);
